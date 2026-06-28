@@ -16,6 +16,7 @@
 <canvas id="display_canvas" width="640" height="360" style="display: none;">
     Your browser can not support canvas.
 </canvas>
+<script src="config.js"></script>
 <script>
     function display_video() {
         navigator.mediaDevices.getUserMedia({ video: true, audio: false })
@@ -31,12 +32,47 @@
         const curr_context = canvas_display.getContext("2d")
         curr_context.drawImage(video_display, 0, 0, 640, 360) 
         const data_url = canvas_display.toDataURL();
-        console.log(data_url)
+        send_to_ai(data_url)
     }
 
-    async function send_to_ai() {
-        const response = await fetch(url);
-
+    async function send_to_ai(data_url) {
+        const url = "https://api.anthropic.com/v1/messages"
+        const headers = {
+            "x-api-key": CLAUDE_API_KEY,
+            "content-type": "application/json",
+            "anthropic-version": "2023-06-01"
+        }
+        const base64 = data_url.split(",")[1]
+        const body = JSON.stringify({
+            model: "claude-sonnet-4-6",
+            max_tokens: 1000,
+            messages: [
+                {
+                    role: "user",
+                    content: [
+                        {
+                        type: "image",
+                        source: {
+                            type: "base64",
+                            media_type: "image/jpeg",
+                            data: base64
+                            }
+                        },
+                        {
+                            type: "text",
+                            text: "what object is in this image?"
+                        }
+                    ]
+                }
+            ]
+        })
+        const response = await fetch(url, {
+            method: "POST",
+            headers: headers,
+            body: body
+        })
+        const data = await response.json()
+        console.log(data)
     }
 </script>
 
