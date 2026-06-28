@@ -12,6 +12,10 @@
   Your browser does not support the video tag.
 </video>
 <button onclick="display_video()">Enable Video</button>
+<button onclick="scan_frame()">Scan</button>
+<canvas id="display_canvas" width="640" height="360" style="display: none;">
+    Your browser can not support canvas.
+</canvas>
 <script>
     function display_video() {
         navigator.mediaDevices.getUserMedia({ video: true, audio: false })
@@ -19,6 +23,16 @@
                 const video_var = document.getElementById("video_display")
                 video_var.srcObject = stream
             })
+    }
+
+    function scan_frame() {
+        console.log("scan triggered")
+        const video_display = document.getElementById("video_display")
+        const canvas_display = document.getElementById("display_canvas")
+        const curr_context = canvas_display.getContext("2d")
+        curr_context.drawImage(video_display, 0, 0, 640, 360) 
+        const data_url = canvas_display.toDataURL();
+        console.log(data_url)
     }
 </script>
 
