@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Scanner</title>
+  </head>
+  <body>
+    <h1>AI Scanner</h1>
+  </body>
+<video id="video_display" autoplay width="640" height="360" playsinline>
+  Your browser does not support the video tag.
+</video>
+<button onclick="display_video()">Enable Video</button>
+<script>
+    function display_video() {
+        navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+            .then(function(stream) {
+                const video_var = document.getElementById("video_display")
+                video_var.srcObject = stream
+            })
+    }
+</script>
+
+
+</html>
