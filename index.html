@@ -1,54 +1,357 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Scanner</title>
-  </head>
-  <body>
-    <h1>AI Scanner</h1>
-  </body>
-<video id="video_display" autoplay width="640" height="360" playsinline>
-  Your browser does not support the video tag.
-</video>
-<button onclick="display_video()">Enable Video</button>
-<button onclick="scan_frame()">Scan</button>
-<canvas id="display_canvas" width="640" height="360" style="display: none;">
-    Your browser can not support canvas.
-</canvas>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Scanner</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #F8F8F6;
+      color: #1A1A1A;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      padding: 1.25rem 2rem;
+      border-bottom: 1px solid #DCDCD8;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    header h1 {
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #1A1A1A;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #A8C5A0;
+      animation: pulse 2s ease-in-out infinite;
+      flex-shrink: 0;
+    }
+    .dot.scanning { background: #f0b47a; animation: pulse 0.6s ease-in-out infinite; }
+    .dot.error { background: #e08080; animation: none; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.85); }
+    }
+
+    .status-text {
+      font-size: 12px;
+      color: #888;
+      letter-spacing: 0.04em;
+      margin-left: auto;
+      text-transform: uppercase;
+    }
+
+    main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2rem;
+      padding: 2rem;
+      max-width: 1100px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    /* LEFT COLUMN */
+    .camera-col { display: flex; flex-direction: column; gap: 1rem; }
+
+    .camera-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #999;
+    }
+
+    .camera-frame {
+      background: #EDEDEA;
+      border-radius: 12px;
+      overflow: hidden;
+      aspect-ratio: 16/10;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid #DCDCD8;
+      position: relative;
+    }
+
+    .camera-frame video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .camera-placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      color: #BBBBB8;
+    }
+
+    .camera-placeholder svg { opacity: 0.5; }
+    .camera-placeholder span { font-size: 13px; }
+
+    .btn-group { display: flex; flex-direction: column; gap: 8px; }
+
+    .btn {
+      width: 100%;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid #DCDCD8;
+      background: #EDEDEA;
+      color: #1A1A1A;
+      transition: all 0.15s;
+      letter-spacing: 0.01em;
+    }
+
+    .btn:hover { background: #E4E4E0; }
+
+    .btn.primary {
+      background: #A8C5A0;
+      border-color: #A8C5A0;
+      color: #fff;
+    }
+
+    .btn.primary:hover { background: #96B68E; border-color: #96B68E; }
+    .btn.danger { background: #e08080; border-color: #e08080; color: #fff; }
+    .btn.danger:hover { background: #cc6e6e; border-color: #cc6e6e; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    canvas { display: none; }
+
+    /* RIGHT COLUMN */
+    .results-col { display: flex; flex-direction: column; gap: 1rem; }
+
+    .results-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #999;
+    }
+
+    .result-panel {
+      background: #EDEDEA;
+      border-radius: 12px;
+      border: 1px solid #DCDCD8;
+      padding: 1.5rem;
+      flex: 1;
+      min-height: 200px;
+    }
+
+    .result-heading {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #BBBBB8;
+      margin-bottom: 12px;
+    }
+
+    .result-text {
+      font-size: 15px;
+      line-height: 1.65;
+      color: #1A1A1A;
+      white-space: pre-wrap;
+    }
+
+    .result-text.empty { color: #BBBBB8; font-style: italic; }
+    .result-text.scanning { color: #BBBBB8; }
+    .result-text.error { color: #e08080; }
+
+    .history-section {
+      margin-top: 1.5rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid #DCDCD8;
+    }
+
+    .history-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+
+    .history-chip {
+      display: inline-block;
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      background: #F8F8F6;
+      border: 1px solid #DCDCD8;
+      color: #888;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="dot" id="dot"></div>
+  <h1>AI Scanner</h1>
+  <span class="status-text" id="statusText">Ready</span>
+</header>
+
+<main>
+  <div class="camera-col">
+    <span class="camera-label">Camera Feed</span>
+    <div class="camera-frame" id="cameraFrame">
+      <video id="video_display" autoplay playsinline style="display:none;"></video>
+      <canvas id="display_canvas" width="640" height="360"></canvas>
+      <div class="camera-placeholder" id="cameraPlaceholder">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+          <circle cx="12" cy="13" r="4"/>
+        </svg>
+        <span>Camera off</span>
+      </div>
+    </div>
+    <div class="btn-group">
+      <button class="btn primary" id="videoBtn" onclick="display_video()">Enable Camera</button>
+      <button class="btn" id="scanBtn" onclick="scan_frame()" disabled>Scan</button>
+    </div>
+  </div>
+
+  <div class="results-col">
+    <span class="results-label">AI Results</span>
+    <div class="result-panel">
+      <div class="result-heading">What the AI sees</div>
+      <div class="result-text empty" id="result">Enable your camera and press Scan to get started.</div>
+      <div class="history-section">
+        <div class="result-heading">Recent scans</div>
+        <div class="history-chips" id="historyChips">
+          <span class="history-chip" style="font-style:italic;">No scans yet</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
 <script src="config.js"></script>
-<p id="result">Scan something to see the result!</p>
 <script>
-    function display_video() {
-        navigator.mediaDevices.getUserMedia({ video: true, audio: false })
-            .then(function(stream) {
-                const video_var = document.getElementById("video_display")
-                video_var.srcObject = stream
-            })
+  let cameraActive = false;
+
+  // Update the dot on top left
+  function setStatus(state, text) {
+    const dot = document.getElementById("dot");
+    const statusText = document.getElementById("statusText");
+    dot.className = "dot" + (state ? " " + state : "");
+    statusText.textContent = text;
+  }
+
+  // Camera controls
+  function display_video() {
+    if (cameraActive) {
+      // Turn off camera
+      const video = document.getElementById("video_display");
+      if (video.srcObject) video.srcObject.getTracks().forEach(t => t.stop());
+      video.srcObject = null;
+      video.style.display = "none";
+      document.getElementById("cameraPlaceholder").style.display = "flex";
+      document.getElementById("scanBtn").disabled = true;
+      document.getElementById("videoBtn").textContent = "Enable Camera";
+      document.getElementById("videoBtn").className = "btn primary";
+      cameraActive = false;
+      setStatus("", "Ready");
+      return;
     }
 
-    function scan_frame() {
-        const video_display = document.getElementById("video_display")
-        const canvas_display = document.getElementById("display_canvas")
-        const curr_context = canvas_display.getContext("2d")
-        curr_context.drawImage(video_display, 0, 0, 640, 360) 
-        const data_url = canvas_display.toDataURL("image/jpeg");
-        send_to_ai(data_url)
-    }
+    // Turn on camera
+    navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+      .then(function(stream) {
+        const video = document.getElementById("video_display");
+        video.srcObject = stream;
+        video.style.display = "block";
+        document.getElementById("cameraPlaceholder").style.display = "none";
+        document.getElementById("scanBtn").disabled = false;
+        document.getElementById("videoBtn").textContent = "Disable Camera";
+        document.getElementById("videoBtn").className = "btn danger";
+        cameraActive = true;
+        setStatus("", "Camera on"); // Update status
+      })
+      // Handle errors from the promise
+      .catch(function() {
+        setStatus("error", "Error");
+        const result = document.getElementById("result");
+        result.className = "result-text error";
+        result.textContent = "Could not access your camera. Please check your permissions.";
+      });
+  }
 
-    async function send_to_ai(data_url) {
-        const base64 = data_url.split(",")[1]
-        const response = await fetch("http://localhost:3000/scan", {
-            method: "POST",
-            headers: {
-                "content-type": "application/json"
-            },
-            body: JSON.stringify({ base64: base64 })
-        })
-        const data = await response.json()
-        document.getElementById("result").innerText = data.content[0].text
+  // Scan current frame
+  function scan_frame() {
+    const video_display = document.getElementById("video_display");
+    const canvas_display = document.getElementById("display_canvas");
+    const curr_context = canvas_display.getContext("2d");
+    curr_context.drawImage(video_display, 0, 0, 640, 360);
+    const data_url = canvas_display.toDataURL("image/jpeg");
+    send_to_ai(data_url);
+  }
+
+  async function send_to_ai(data_url) {
+    const result = document.getElementById("result");
+    try {
+      const base64 = data_url.split(",")[1];
+      result.className = "result-text scanning";
+      result.textContent = "Awaiting response...";
+      setStatus("scanning", "Scanning...");
+      document.getElementById("scanBtn").disabled = true;
+
+      const response = await fetch("http://localhost:3000/scan", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ base64: base64 })
+      });
+
+      const data = await response.json();
+
+      if (data.error) {
+        result.className = "result-text error";
+        result.textContent = "Something went wrong, please try again.";
+        setStatus("error", "Error");
+      } else {
+        result.className = "result-text";
+        result.textContent = data.content[0].text;
+        addHistory(data.content[0].text);
+        setStatus("", "Ready");
+      }
+    } catch(err) {
+      result.className = "result-text error";
+      result.textContent = "Could not connect to server. Is it running?";
+      setStatus("error", "Error");
     }
+    document.getElementById("scanBtn").disabled = false;
+  }
+
+  // WIP History chips
+  function addHistory(text) {
+    const container = document.getElementById("historyChips");
+    const firstLine = text.split("\n")[0].replace(/[•\-\*]/g, "").trim().slice(0, 30);
+    if (container.querySelector("[style*='italic']")) {
+      container.innerHTML = "";
+    }
+    const chip = document.createElement("span");
+    chip.className = "history-chip";
+    chip.textContent = firstLine;
+    container.prepend(chip);
+    if (container.children.length > 8) container.removeChild(container.lastChild);
+  }
 </script>
 
-
+</body>
 </html>

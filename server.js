@@ -23,12 +23,16 @@ app.post("/scan", async (req, res) => {
                     role: "user",
                     content: [
                         { type: "image", source: { type: "base64", media_type: "image/jpeg", data: base64 }},
-                        { type: "text", text: "What object is in this image?" }
+                        { type: "text", text: "What objects are in this image? Do not describe the room, just what you see in the image. Use simple wording, ideally one word so it is easy to understand. So for example, if an apple is in frame, all you say is apple. Please only include the main things in the camera, so a random light switch wont be included, but a person in the background would be, or a apple right in front of the camera. Please also respond in bullet points" }
                     ]
                 }]
             })
         })
         const data = await response.json()
+        if (data.error) {
+            res.status(400).json({ error: data.error.message })
+            return
+        }
         res.json(data)
     } catch(err) {
         console.error(err)
