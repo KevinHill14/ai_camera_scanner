@@ -36,40 +36,13 @@
     }
 
     async function send_to_ai(data_url) {
-        const url = "https://api.anthropic.com/v1/messages"
-        const headers = {
-            "x-api-key": CLAUDE_API_KEY,
-            "content-type": "application/json",
-            "anthropic-version": "2023-06-01"
-        }
         const base64 = data_url.split(",")[1]
-        const body = JSON.stringify({
-            model: "claude-sonnet-4-6",
-            max_tokens: 1000,
-            messages: [
-                {
-                    role: "user",
-                    content: [
-                        {
-                        type: "image",
-                        source: {
-                            type: "base64",
-                            media_type: "image/jpeg",
-                            data: base64
-                            }
-                        },
-                        {
-                            type: "text",
-                            text: "what object is in this image?"
-                        }
-                    ]
-                }
-            ]
-        })
-        const response = await fetch(url, {
+        const response = await fetch("http://localhost:3000/scan", {
             method: "POST",
-            headers: headers,
-            body: body
+            headers: {
+                "content-type": "application/json"
+            },
+            body: JSON.stringify({ base64: base64 })
         })
         const data = await response.json()
         console.log(data)
