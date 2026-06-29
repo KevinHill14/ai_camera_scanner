@@ -17,6 +17,7 @@
     Your browser can not support canvas.
 </canvas>
 <script src="config.js"></script>
+<p id="result">Scan something to see the result!</p>
 <script>
     function display_video() {
         navigator.mediaDevices.getUserMedia({ video: true, audio: false })
@@ -31,7 +32,7 @@
         const canvas_display = document.getElementById("display_canvas")
         const curr_context = canvas_display.getContext("2d")
         curr_context.drawImage(video_display, 0, 0, 640, 360) 
-        const data_url = canvas_display.toDataURL();
+        const data_url = canvas_display.toDataURL("image/jpeg");
         send_to_ai(data_url)
     }
 
@@ -45,7 +46,7 @@
             body: JSON.stringify({ base64: base64 })
         })
         const data = await response.json()
-        console.log(data)
+        document.getElementById("result").innerText = data.content[0].text
     }
 </script>
 
