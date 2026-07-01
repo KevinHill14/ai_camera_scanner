@@ -253,6 +253,7 @@
   let auto_scan_timer = null;
   let model = null;
   let trackedObjects = [];
+  let labelCache = {};
 
   // ─── TensorFlow ───────────────────────────────────────────────
   async function loadModel() {
@@ -278,11 +279,10 @@
   function is_same_object(bbox_a, bbox_b) {
     const a = get_center(bbox_a);
     const b = get_center(bbox_b);
-    return Math.hypot(a.x - b.x, a.y - b.y) < 120;
+    return Math.hypot(a.x - b.x, a.y - b.y) < 200;
   }
 
   function updateTrackedObjects(predictions) {
-    // Remove objects no longer detected
     trackedObjects = trackedObjects.filter(tracked =>
       predictions.some(p => is_same_object(p.bbox, tracked.bbox))
     );
@@ -293,24 +293,22 @@
       );
 
       if (!existing) {
-        // New object -- use TF label immediately, debounce Claude call
         const newObj = {
           bbox: prediction.bbox,
           tf_label: prediction.class,
-          label: prediction.class,  // starts as TF label
+          label: labelCache[prediction.class] || prediction.class,
           confidence: prediction.score,
           claude_called: false,
-          debounce_timer: null
+          frames_lost: 0
         };
 
-        // Wait 1 second before calling Claude -- avoids ghost frame waste
-        newObj.debounce_timer = setTimeout(() => {
-          if (!newObj.claude_called) {
-            ask_claude(newObj);
-          }
-        }, 1000);
-
         trackedObjects.push(newObj);
+
+        if (!labelCache[prediction.class]) {
+          newObj.debounce_timer = setTimeout(() => {
+            ask_claude(newObj);
+          }, 1000);
+        }
       } else {
         existing.bbox = prediction.bbox;
         existing.confidence = prediction.score;
@@ -318,9 +316,8 @@
     });
   }
 
-  // ─── Claude labeling ──────────────────────────────────────────
   async function ask_claude(trackedObj) {
-    console.log("Calling Claude for object:", trackedObj);
+    console.log("Asking Claude for label of:", trackedObj.tf_label);
     trackedObj.claude_called = true;
     const video = document.getElementById("video_display");
     const tempCanvas = document.createElement("canvas");
@@ -339,7 +336,9 @@
       });
       const data = await response.json();
       if (!data.error && data.content?.[0]?.text) {
-        trackedObj.label = data.content[0].text.trim();
+        const claudeLabel = data.content[0].text.trim();
+        trackedObj.label = claudeLabel;
+        labelCache[trackedObj.tf_label] = claudeLabel;
       }
     } catch(err) {
       console.error("Claude error:", err);
@@ -424,6 +423,11 @@
         result.textContent = "Could not access your camera. Please check your permissions.";
       });
   }
+
+  setInterval(() => {
+    if (!cameraActive) return;
+    trackedObjects = [];
+  }, 1000);
 
   // ─── Manual scan ──────────────────────────────────────────────
   function scan_frame() {
