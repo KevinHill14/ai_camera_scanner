@@ -225,6 +225,15 @@
     <div class="btn-group">
       <button class="btn primary" id="videoBtn" onclick="display_video()">Enable Camera</button>
       <button class="btn" id="scanBtn" onclick="scan_frame()" disabled>Scan</button>
+      <div style="display: flex; gap: 8px;">
+        <button class="btn" id="auto_scan_btn" onclick="enable_auto_scan()" disabled>Auto Scan</button>
+        <select id="frequencySelect" style="width: auto; padding: 12px 8px; border-radius: 8px; border: 1px solid #DCDCD8; background: #EDEDEA; font-size: 14px;">
+          <option value="1000">1s</option>
+          <option value="3000">3s</option>
+          <option value="5000">5s</option>
+          <option value="10000">10s</option>
+        </select>
+      </div>
     </div>
   </div>
 
@@ -246,6 +255,7 @@
 <script src="config.js"></script>
 <script>
   let cameraActive = false;
+  let auto_scan_timer = null;
 
   // Update the dot on top left
   function setStatus(state, text) {
@@ -265,6 +275,7 @@
       video.style.display = "none";
       document.getElementById("cameraPlaceholder").style.display = "flex";
       document.getElementById("scanBtn").disabled = true;
+      document.getElementById("auto_scan_btn").disabled = true;
       document.getElementById("videoBtn").textContent = "Enable Camera";
       document.getElementById("videoBtn").className = "btn primary";
       cameraActive = false;
@@ -280,6 +291,7 @@
         video.style.display = "block";
         document.getElementById("cameraPlaceholder").style.display = "none";
         document.getElementById("scanBtn").disabled = false;
+        document.getElementById("auto_scan_btn").disabled = false;
         document.getElementById("videoBtn").textContent = "Disable Camera";
         document.getElementById("videoBtn").className = "btn danger";
         cameraActive = true;
@@ -296,12 +308,30 @@
 
   // Scan current frame
   function scan_frame() {
+    console.log("scanning...")
     const video_display = document.getElementById("video_display");
     const canvas_display = document.getElementById("display_canvas");
     const curr_context = canvas_display.getContext("2d");
     curr_context.drawImage(video_display, 0, 0, 640, 360);
     const data_url = canvas_display.toDataURL("image/jpeg");
     send_to_ai(data_url);
+  }
+
+  // Auto scan
+  function enable_auto_scan() {
+    // Disable timer
+    if (auto_scan_timer) {
+      clearInterval(auto_scan_timer)
+      document.getElementById("scanBtn").disabled = false;
+      document.getElementById("auto_scan_btn").textContent = "Auto Scan"
+      document.getElementById("auto_scan_btn").className = "btn";
+    } else {
+      // enable timer
+      document.getElementById("scanBtn").disabled = true;
+      document.getElementById("auto_scan_btn").textContent = "Disable Auto Scan"
+      document.getElementById("auto_scan_btn").className = "btn danger";
+      auto_scan_timer = setInterval(scan_frame, document.getElementById("frequencySelect").value)
+    }
   }
 
   async function send_to_ai(data_url) {
