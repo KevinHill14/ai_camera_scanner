@@ -23,7 +23,16 @@ app.post("/scan", async (req, res) => {
                     role: "user",
                     content: [
                         { type: "image", source: { type: "base64", media_type: "image/jpeg", data: base64 }},
-                        { type: "text", text: "What objects are in this image? Do not describe the room, just what you see in the image. Use simple wording, ideally one word so it is easy to understand. So for example, if an apple is in frame, all you say is apple. Please only include the main things in the camera, so a random light switch wont be included, but a person in the background would be, or a apple right in front of the camera. Please also respond in bullet points" }
+                        { type: "text", text: `
+                            What objects are in this image? 
+                            Rules: respond ONLY in bullet points. 
+                            One word per bullet. 
+                            Only include main objects, ignore background details. 
+                            No descriptions, no sentences, just bullet points. 
+                            Example format:
+                            - Apple
+                            - Person
+                            - Laptop`}
                     ]
                 }]
             })
@@ -32,6 +41,14 @@ app.post("/scan", async (req, res) => {
         if (data.error) {
             res.status(400).json({ error: data.error.message })
             return
+        }
+        // convert the formatting
+        if (data.content && data.content[0]) {
+            data.content[0].text = data.content[0].text
+                .split("\n")
+                .filter(line => line.trim().length > 0)
+                .map(line => "• " + line.replace(/^[•\-\*]\s*/, "").trim())
+                .join("\n")
         }
         res.json(data)
     } catch(err) {
