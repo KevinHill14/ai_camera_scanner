@@ -1,7 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AI Scanner</title>
@@ -68,7 +69,6 @@
       width: 100%;
     }
 
-    /* LEFT COLUMN */
     .camera-col { display: flex; flex-direction: column; gap: 1rem; }
 
     .camera-label {
@@ -127,13 +127,7 @@
     }
 
     .btn:hover { background: #E4E4E0; }
-
-    .btn.primary {
-      background: #A8C5A0;
-      border-color: #A8C5A0;
-      color: #fff;
-    }
-
+    .btn.primary { background: #A8C5A0; border-color: #A8C5A0; color: #fff; }
     .btn.primary:hover { background: #96B68E; border-color: #96B68E; }
     .btn.danger { background: #e08080; border-color: #e08080; color: #fff; }
     .btn.danger:hover { background: #cc6e6e; border-color: #cc6e6e; }
@@ -141,7 +135,6 @@
 
     #display_canvas { display: none; }
 
-    /* RIGHT COLUMN */
     .results-col { display: flex; flex-direction: column; gap: 1rem; }
 
     .results-label {
@@ -261,38 +254,100 @@
   let model = null;
   let trackedObjects = [];
 
-  // load media pipe
+  // ─── TensorFlow ───────────────────────────────────────────────
   async function loadModel() {
-    const { ObjectDetector, FilesetResolver } = await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/vision_bundle.mjs");
-    
-    const vision = await FilesetResolver.forVisionTasks(
-      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
-    );
-    
-    model = await ObjectDetector.createFromOptions(vision, {
-      baseOptions: {
-        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite"
-      },
-      scoreThreshold: 0.5,
-      runningMode: "VIDEO"
-    });
-    
-    console.log("MediaPipe loaded!");
+    model = await cocoSsd.load();
+    console.log("Model loaded!");
   }
   loadModel();
 
-  // detect what is on the camera with tensorflow
   async function detectObjects() {
     if (!model || !cameraActive) return;
     const video = document.getElementById("video_display");
     const predictions = await model.detect(video);
     updateTrackedObjects(predictions);
-    drawBoxes(predictions);
+    drawBoxes();
     requestAnimationFrame(detectObjects);
   }
 
-  // draw boxes on the overlay canvas
-  function drawBoxes(predictions) {
+  // ─── Tracking ─────────────────────────────────────────────────
+  function get_center(bbox) {
+    return { x: bbox[0] + bbox[2] / 2, y: bbox[1] + bbox[3] / 2 };
+  }
+
+  function is_same_object(bbox_a, bbox_b) {
+    const a = get_center(bbox_a);
+    const b = get_center(bbox_b);
+    return Math.hypot(a.x - b.x, a.y - b.y) < 120;
+  }
+
+  function updateTrackedObjects(predictions) {
+    // Remove objects no longer detected
+    trackedObjects = trackedObjects.filter(tracked =>
+      predictions.some(p => is_same_object(p.bbox, tracked.bbox))
+    );
+
+    predictions.forEach(prediction => {
+      const existing = trackedObjects.find(t =>
+        is_same_object(prediction.bbox, t.bbox) && t.tf_label === prediction.class
+      );
+
+      if (!existing) {
+        // New object -- use TF label immediately, debounce Claude call
+        const newObj = {
+          bbox: prediction.bbox,
+          tf_label: prediction.class,
+          label: prediction.class,  // starts as TF label
+          confidence: prediction.score,
+          claude_called: false,
+          debounce_timer: null
+        };
+
+        // Wait 1 second before calling Claude -- avoids ghost frame waste
+        newObj.debounce_timer = setTimeout(() => {
+          if (!newObj.claude_called) {
+            ask_claude(newObj);
+          }
+        }, 1000);
+
+        trackedObjects.push(newObj);
+      } else {
+        existing.bbox = prediction.bbox;
+        existing.confidence = prediction.score;
+      }
+    });
+  }
+
+  // ─── Claude labeling ──────────────────────────────────────────
+  async function ask_claude(trackedObj) {
+    console.log("Calling Claude for object:", trackedObj);
+    trackedObj.claude_called = true;
+    const video = document.getElementById("video_display");
+    const tempCanvas = document.createElement("canvas");
+    const ctx = tempCanvas.getContext("2d");
+    const [x, y, width, height] = trackedObj.bbox;
+    tempCanvas.width = width;
+    tempCanvas.height = height;
+    ctx.drawImage(video, x, y, width, height, 0, 0, width, height);
+    const base64 = tempCanvas.toDataURL("image/jpeg").split(",")[1];
+
+    try {
+      const response = await fetch("http://localhost:3000/scan", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ base64 })
+      });
+      const data = await response.json();
+      if (!data.error && data.content?.[0]?.text) {
+        trackedObj.label = data.content[0].text.trim();
+      }
+    } catch(err) {
+      console.error("Claude error:", err);
+    }
+  }
+
+  // ─── Drawing ──────────────────────────────────────────────────
+  function drawBoxes() {
     const canvas = document.getElementById("overlay_canvas");
     const video = document.getElementById("video_display");
     canvas.width = video.videoWidth;
@@ -302,55 +357,25 @@
 
     trackedObjects.forEach(obj => {
       const [x, y, width, height] = obj.bbox;
-      ctx.strokeStyle = "#A8C5A0";
+      const isPending = !obj.claude_called;
+
+      // Box colour -- grey while pending Claude, green when labelled
+      ctx.strokeStyle = isPending ? "#BBBBB8" : "#A8C5A0";
       ctx.lineWidth = 2;
       ctx.strokeRect(x, y, width, height);
 
-      // Draw label above the box
-      ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
-      ctx.fillRect(x, y - 28, width, 28);
+      // Label bar
+      const labelWidth = Math.max(width, ctx.measureText(obj.label).width + 20);
+      ctx.fillStyle = isPending ? "rgba(100,100,100,0.6)" : "rgba(0,0,0,0.6)";
+      ctx.fillRect(x, y - 28, labelWidth, 28);
       ctx.fillStyle = "#fff";
-      ctx.font = "bold 14px sans-serif";
-      ctx.fillText(obj.label, x + 6, y - 10);
+      ctx.font = "bold 13px sans-serif";
+      const conf = Math.round(obj.confidence * 100) + "%";
+      ctx.fillText(`${obj.label} ${conf}`, x + 6, y - 10);
     });
   }
 
-  // OBJECT LABELING WIP
-  function is_same_object(new_object, old_object) {
-    const new_x = new_object[0] + new_object[2] / 2;
-    const new_y = new_object[1] + new_object[3] / 2;
-    const old_x = old_object[0] + old_object[2] / 2;
-    const old_y = old_object[1] + old_object[3] / 2;
-    // Simple distance-based comparison
-    const distance = Math.hypot(new_x - old_x, new_y - old_y);
-    return distance < 100; // Adjust threshold as needed
-  }
-
-  // update tracked objects based on new predictions
-  function updateTrackedObjects(predictions) {
-    // Remove objects that are no longer detected
-    trackedObjects = trackedObjects.filter(tracked =>
-      predictions.some(p => is_same_object(p.bbox, tracked.bbox))
-    );
-
-    // Check each prediction -- new or existing?
-    predictions.forEach(prediction => {
-      const existing = trackedObjects.find(t => is_same_object(prediction.bbox, t.bbox));
-      if (!existing) {
-        const newObj = {
-          bbox: prediction.bbox,
-          label: prediction.class,
-          confidence: prediction.score
-        };
-        trackedObjects.push(newObj);
-      } else {
-        // Same object -- just update its position
-        existing.bbox = prediction.bbox;
-      }
-    });
-  }
-
-  // Update the dot on top left
+  // ─── Status ───────────────────────────────────────────────────
   function setStatus(state, text) {
     const dot = document.getElementById("dot");
     const statusText = document.getElementById("statusText");
@@ -358,10 +383,9 @@
     statusText.textContent = text;
   }
 
-  // Camera controls
+  // ─── Camera ───────────────────────────────────────────────────
   function display_video() {
     if (cameraActive) {
-      // Turn off camera
       const video = document.getElementById("video_display");
       if (video.srcObject) video.srcObject.getTracks().forEach(t => t.stop());
       video.srcObject = null;
@@ -372,17 +396,13 @@
       document.getElementById("videoBtn").textContent = "Enable Camera";
       document.getElementById("videoBtn").className = "btn primary";
       cameraActive = false;
+      trackedObjects = [];
       setStatus("", "Ready");
-
-      // reset the overlay canvas
       const canvas = document.getElementById("overlay_canvas");
-      const ctx = canvas.getContext("2d");
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
+      canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
       return;
     }
 
-    // Turn on camera
     navigator.mediaDevices.getUserMedia({ video: true, audio: false })
       .then(function(stream) {
         const video = document.getElementById("video_display");
@@ -394,17 +414,9 @@
         document.getElementById("videoBtn").textContent = "Disable Camera";
         document.getElementById("videoBtn").className = "btn danger";
         cameraActive = true;
-        const overlay = document.getElementById("overlay_canvas");
-        overlay.width = video.videoWidth;
-        overlay.height = video.videoHeight;
-        overlay.style.width = video.offsetWidth + "px";
-        overlay.style.height = video.offsetHeight + "px";
-        setStatus("", "Camera on"); // Update status
-        video.onloadeddata = () => {
-          detectObjects();
-        }
+        setStatus("", "Camera on");
+        video.onloadeddata = () => { detectObjects(); };
       })
-      // Handle errors from the promise
       .catch(function() {
         setStatus("error", "Error");
         const result = document.getElementById("result");
@@ -413,9 +425,8 @@
       });
   }
 
-  // Scan current frame
+  // ─── Manual scan ──────────────────────────────────────────────
   function scan_frame() {
-    console.log("scanning...")
     const video_display = document.getElementById("video_display");
     const canvas_display = document.getElementById("display_canvas");
     const curr_context = canvas_display.getContext("2d");
@@ -424,23 +435,23 @@
     send_to_ai(data_url);
   }
 
-  // Auto scan
+  // ─── Auto scan ────────────────────────────────────────────────
   function enable_auto_scan() {
-    // Disable timer
     if (auto_scan_timer) {
-      clearInterval(auto_scan_timer)
+      clearInterval(auto_scan_timer);
+      auto_scan_timer = null;
       document.getElementById("scanBtn").disabled = false;
-      document.getElementById("auto_scan_btn").textContent = "Auto Scan"
+      document.getElementById("auto_scan_btn").textContent = "Auto Scan";
       document.getElementById("auto_scan_btn").className = "btn";
     } else {
-      // enable timer
       document.getElementById("scanBtn").disabled = true;
-      document.getElementById("auto_scan_btn").textContent = "Disable Auto Scan"
+      document.getElementById("auto_scan_btn").textContent = "Disable Auto Scan";
       document.getElementById("auto_scan_btn").className = "btn danger";
-      auto_scan_timer = setInterval(scan_frame, document.getElementById("frequencySelect").value)
+      auto_scan_timer = setInterval(scan_frame, document.getElementById("frequencySelect").value);
     }
   }
 
+  // ─── Send to AI (manual scan) ─────────────────────────────────
   async function send_to_ai(data_url) {
     const result = document.getElementById("result");
     try {
@@ -453,11 +464,10 @@
       const response = await fetch("http://localhost:3000/scan", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ base64: base64 })
+        body: JSON.stringify({ base64 })
       });
 
       const data = await response.json();
-
       if (data.error) {
         result.className = "result-text error";
         result.textContent = "Something went wrong, please try again.";
@@ -476,23 +486,19 @@
     document.getElementById("scanBtn").disabled = false;
   }
 
-  // WIP History chips
-function addHistory(text) {
-  const container = document.getElementById("historyChips");
-
-  if (container.querySelector("[style*='italic']")) {
-    container.innerHTML = "";
+  // ─── History ──────────────────────────────────────────────────
+  function addHistory(text) {
+    const container = document.getElementById("historyChips");
+    if (container.querySelector("[style*='italic']")) {
+      container.innerHTML = "";
+    }
+    const date = new Date();
+    const timestamp = date.toLocaleDateString() + ", " + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const chip = document.createElement("div");
+    chip.className = "history-chip";
+    chip.innerHTML = `<div class="chip-header">${timestamp}</div><div class="chip-body">${text}</div>`;
+    container.prepend(chip);
   }
-
-  const date = new Date();
-  const timestamp = date.toLocaleDateString() + ", " + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-  const chip = document.createElement("div");
-  chip.className = "history-chip";
-  chip.innerHTML = `<div class="chip-header">${timestamp}</div><div class="chip-body">${text}</div>`;
-
-  container.prepend(chip);
-}
 </script>
 
 </body>
