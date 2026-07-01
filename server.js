@@ -24,15 +24,13 @@ app.post("/scan", async (req, res) => {
                     content: [
                         { type: "image", source: { type: "base64", media_type: "image/jpeg", data: base64 }},
                         { type: "text", text: `
-                            What objects are in this image? 
-                            Rules: respond ONLY in bullet points. 
-                            One word per bullet. 
-                            Only include main objects, ignore background details. 
-                            No descriptions, no sentences, just bullet points. 
-                            Example format:
-                            - Apple
-                            - Person
-                            - Laptop`}
+                            In only 1 word, what is the oject on this image? 
+                            Focus only on the main object, not anything in the background.
+                            Do not use context to describe what is happening on the screen, only what is being seen in the exact image provides.
+                            Never break the 1 word rule unless the object is spelt in 2 words
+                            Do not add any formatting to the word, just output a word of what you see in the image.
+                            If you are unsure, respond with unknown.
+                            if there are multiple objects in the image, respond with the most prominent object.`}
                     ]
                 }]
             })

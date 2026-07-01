@@ -1,8 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.js" crossorigin="anonymous"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AI Scanner</title>
@@ -260,11 +259,25 @@
   let cameraActive = false;
   let auto_scan_timer = null;
   let model = null;
+  let trackedObjects = [];
 
-  // Load tensrflow
+  // load media pipe
   async function loadModel() {
-    model = await cocoSsd.load();
-    console.log("Model loaded!");
+    const { ObjectDetector, FilesetResolver } = await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/vision_bundle.mjs");
+    
+    const vision = await FilesetResolver.forVisionTasks(
+      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+    );
+    
+    model = await ObjectDetector.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite"
+      },
+      scoreThreshold: 0.5,
+      runningMode: "VIDEO"
+    });
+    
+    console.log("MediaPipe loaded!");
   }
   loadModel();
 
@@ -273,6 +286,7 @@
     if (!model || !cameraActive) return;
     const video = document.getElementById("video_display");
     const predictions = await model.detect(video);
+    updateTrackedObjects(predictions);
     drawBoxes(predictions);
     requestAnimationFrame(detectObjects);
   }
@@ -283,19 +297,56 @@
     const video = document.getElementById("video_display");
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-    // debugging logs
-    console.log("canvas:", canvas.width, canvas.height);
-    console.log("predictions:", predictions);
-
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    predictions.forEach(prediction => {
-      const [x, y, width, height] = prediction.bbox;
-      console.log("drawing box at:", x, y, width, height);
-      ctx.strokeStyle = "red";
-      ctx.lineWidth = 5;
+    trackedObjects.forEach(obj => {
+      const [x, y, width, height] = obj.bbox;
+      ctx.strokeStyle = "#A8C5A0";
+      ctx.lineWidth = 2;
       ctx.strokeRect(x, y, width, height);
+
+      // Draw label above the box
+      ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+      ctx.fillRect(x, y - 28, width, 28);
+      ctx.fillStyle = "#fff";
+      ctx.font = "bold 14px sans-serif";
+      ctx.fillText(obj.label, x + 6, y - 10);
+    });
+  }
+
+  // OBJECT LABELING WIP
+  function is_same_object(new_object, old_object) {
+    const new_x = new_object[0] + new_object[2] / 2;
+    const new_y = new_object[1] + new_object[3] / 2;
+    const old_x = old_object[0] + old_object[2] / 2;
+    const old_y = old_object[1] + old_object[3] / 2;
+    // Simple distance-based comparison
+    const distance = Math.hypot(new_x - old_x, new_y - old_y);
+    return distance < 100; // Adjust threshold as needed
+  }
+
+  // update tracked objects based on new predictions
+  function updateTrackedObjects(predictions) {
+    // Remove objects that are no longer detected
+    trackedObjects = trackedObjects.filter(tracked =>
+      predictions.some(p => is_same_object(p.bbox, tracked.bbox))
+    );
+
+    // Check each prediction -- new or existing?
+    predictions.forEach(prediction => {
+      const existing = trackedObjects.find(t => is_same_object(prediction.bbox, t.bbox));
+      if (!existing) {
+        const newObj = {
+          bbox: prediction.bbox,
+          label: prediction.class,
+          confidence: prediction.score
+        };
+        trackedObjects.push(newObj);
+      } else {
+        // Same object -- just update its position
+        existing.bbox = prediction.bbox;
+      }
     });
   }
 
@@ -322,7 +373,7 @@
       document.getElementById("videoBtn").className = "btn primary";
       cameraActive = false;
       setStatus("", "Ready");
-      
+
       // reset the overlay canvas
       const canvas = document.getElementById("overlay_canvas");
       const ctx = canvas.getContext("2d");
