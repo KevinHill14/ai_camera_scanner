@@ -296,53 +296,17 @@
         const newObj = {
           bbox: prediction.bbox,
           tf_label: prediction.class,
-          label: labelCache[prediction.class] || prediction.class,
+          label: labelCache[prediction.class] || prediction.class, //delete?
           confidence: prediction.score,
-          claude_called: false,
           frames_lost: 0
         };
 
         trackedObjects.push(newObj);
-
-        if (!labelCache[prediction.class]) {
-          newObj.debounce_timer = setTimeout(() => {
-            ask_claude(newObj);
-          }, 1000);
-        }
       } else {
         existing.bbox = prediction.bbox;
         existing.confidence = prediction.score;
       }
     });
-  }
-
-  async function ask_claude(trackedObj) {
-    console.log("Asking Claude for label of:", trackedObj.tf_label);
-    trackedObj.claude_called = true;
-    const video = document.getElementById("video_display");
-    const tempCanvas = document.createElement("canvas");
-    const ctx = tempCanvas.getContext("2d");
-    const [x, y, width, height] = trackedObj.bbox;
-    tempCanvas.width = width;
-    tempCanvas.height = height;
-    ctx.drawImage(video, x, y, width, height, 0, 0, width, height);
-    const base64 = tempCanvas.toDataURL("image/jpeg").split(",")[1];
-
-    try {
-      const response = await fetch("http://localhost:3000/scan", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ base64 })
-      });
-      const data = await response.json();
-      if (!data.error && data.content?.[0]?.text) {
-        const claudeLabel = data.content[0].text.trim();
-        trackedObj.label = claudeLabel;
-        labelCache[trackedObj.tf_label] = claudeLabel;
-      }
-    } catch(err) {
-      console.error("Claude error:", err);
-    }
   }
 
   // ─── Drawing ──────────────────────────────────────────────────
