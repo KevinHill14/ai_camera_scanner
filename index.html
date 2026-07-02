@@ -1,8 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <!-- Add tensor flow -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+  
+  <!-- Main frontend-->
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AI Scanner</title>
@@ -249,19 +252,21 @@
 
 <script src="config.js"></script>
 <script>
+  // Declare variables
   let cameraActive = false;
   let auto_scan_timer = null;
   let model = null;
   let trackedObjects = [];
   let labelCache = {};
 
-  // ─── TensorFlow ───────────────────────────────────────────────
+  // Load tensorflow model
   async function loadModel() {
     model = await cocoSsd.load();
-    console.log("Model loaded!");
+    console.log("Tensorflow model loaded!");
   }
   loadModel();
 
+  // Detect objects in the video feed
   async function detectObjects() {
     if (!model || !cameraActive) return;
     const video = document.getElementById("video_display");
@@ -271,17 +276,23 @@
     requestAnimationFrame(detectObjects);
   }
 
-  // ─── Tracking ─────────────────────────────────────────────────
+  /* 
+  TRACKING
+  =========================
+  */
+  // Get the center of a bounding box
   function get_center(bbox) {
     return { x: bbox[0] + bbox[2] / 2, y: bbox[1] + bbox[3] / 2 };
   }
 
+  // Decide if two bounding boxes are the same object based on their centers
   function is_same_object(bbox_a, bbox_b) {
     const a = get_center(bbox_a);
     const b = get_center(bbox_b);
     return Math.hypot(a.x - b.x, a.y - b.y) < 200;
   }
 
+  // Update the list of tracked objects based on new predictions
   function updateTrackedObjects(predictions) {
     trackedObjects = trackedObjects.filter(tracked =>
       predictions.some(p => is_same_object(p.bbox, tracked.bbox))
@@ -296,7 +307,7 @@
         const newObj = {
           bbox: prediction.bbox,
           tf_label: prediction.class,
-          label: labelCache[prediction.class] || prediction.class, //delete?
+          label: labelCache[prediction.class] || prediction.class,
           confidence: prediction.score,
           frames_lost: 0
         };
@@ -309,7 +320,7 @@
     });
   }
 
-  // ─── Drawing ──────────────────────────────────────────────────
+  // Draw bounding boxes and labels on the overlay canvas
   function drawBoxes() {
     const canvas = document.getElementById("overlay_canvas");
     const video = document.getElementById("video_display");
@@ -338,7 +349,7 @@
     });
   }
 
-  // ─── Status ───────────────────────────────────────────────────
+  // Update the status icon of the app
   function setStatus(state, text) {
     const dot = document.getElementById("dot");
     const statusText = document.getElementById("statusText");
@@ -346,13 +357,16 @@
     statusText.textContent = text;
   }
 
-  // ─── Camera ───────────────────────────────────────────────────
+  // Main camera toggle 
   function display_video() {
+    // If camera is enabled, disable it
     if (cameraActive) {
       const video = document.getElementById("video_display");
       if (video.srcObject) video.srcObject.getTracks().forEach(t => t.stop());
       video.srcObject = null;
       video.style.display = "none";
+
+      // Update UI elements
       document.getElementById("cameraPlaceholder").style.display = "flex";
       document.getElementById("scanBtn").disabled = true;
       document.getElementById("auto_scan_btn").disabled = true;
@@ -361,16 +375,20 @@
       cameraActive = false;
       trackedObjects = [];
       setStatus("", "Ready");
+
       const canvas = document.getElementById("overlay_canvas");
       canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
       return;
     }
 
+    // Camera is disabled, enable it
     navigator.mediaDevices.getUserMedia({ video: true, audio: false })
       .then(function(stream) {
         const video = document.getElementById("video_display");
         video.srcObject = stream;
         video.style.display = "block";
+
+        // Update UI elements
         document.getElementById("cameraPlaceholder").style.display = "none";
         document.getElementById("scanBtn").disabled = false;
         document.getElementById("auto_scan_btn").disabled = false;
@@ -380,6 +398,7 @@
         setStatus("", "Camera on");
         video.onloadeddata = () => { detectObjects(); };
       })
+      // Display any errors
       .catch(function() {
         setStatus("error", "Error");
         const result = document.getElementById("result");
@@ -387,13 +406,14 @@
         result.textContent = "Could not access your camera. Please check your permissions.";
       });
   }
+  //fixme redundant code check
+  // Wipe screen every second to avoid stale data
+  // setInterval(() => {
+  //   if (!cameraActive) return;
+  //   trackedObjects = [];
+  // }, 1000);
 
-  setInterval(() => {
-    if (!cameraActive) return;
-    trackedObjects = [];
-  }, 1000);
-
-  // ─── Manual scan ──────────────────────────────────────────────
+  // Manual scan of the current frame
   function scan_frame() {
     const video_display = document.getElementById("video_display");
     const canvas_display = document.getElementById("display_canvas");
@@ -403,15 +423,16 @@
     send_to_ai(data_url);
   }
 
-  // ─── Auto scan ────────────────────────────────────────────────
+  // Auto scan toggle
   function enable_auto_scan() {
+    // Auto scan enabled, disable it
     if (auto_scan_timer) {
       clearInterval(auto_scan_timer);
       auto_scan_timer = null;
       document.getElementById("scanBtn").disabled = false;
       document.getElementById("auto_scan_btn").textContent = "Auto Scan";
       document.getElementById("auto_scan_btn").className = "btn";
-    } else {
+    } else {  // Auto scan disabled, enable it
       document.getElementById("scanBtn").disabled = true;
       document.getElementById("auto_scan_btn").textContent = "Disable Auto Scan";
       document.getElementById("auto_scan_btn").className = "btn danger";
@@ -419,7 +440,7 @@
     }
   }
 
-  // ─── Send to AI (manual scan) ─────────────────────────────────
+  // Claude API call
   async function send_to_ai(data_url) {
     const result = document.getElementById("result");
     try {
@@ -454,7 +475,7 @@
     document.getElementById("scanBtn").disabled = false;
   }
 
-  // ─── History ──────────────────────────────────────────────────
+  // History chip control
   function addHistory(text) {
     const container = document.getElementById("historyChips");
     if (container.querySelector("[style*='italic']")) {
