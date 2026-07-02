@@ -294,9 +294,9 @@
 
   // Update the list of tracked objects based on new predictions
   function updateTrackedObjects(predictions) {
-    trackedObjects = trackedObjects.filter(tracked =>
-      predictions.some(p => is_same_object(p.bbox, tracked.bbox))
-    );
+    trackedObjects.forEach(obj => {
+        obj.frames_lost++;
+    });
 
     predictions.forEach(prediction => {
       const existing = trackedObjects.find(t =>
@@ -316,8 +316,12 @@
       } else {
         existing.bbox = prediction.bbox;
         existing.confidence = prediction.score;
+        existing.frames_lost = 0;
       }
     });
+
+    // Remove anything thats not been seen for 5 frames
+    trackedObjects = trackedObjects.filter(obj => obj.frames_lost < 5);
   }
 
   // Draw bounding boxes and labels on the overlay canvas
